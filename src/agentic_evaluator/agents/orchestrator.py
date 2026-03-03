@@ -11,22 +11,17 @@ Flow:
 import asyncio
 import json
 import re
-
-
-def _strip_think_tags(text: str) -> str:
-    """Remove <think>...</think> reasoning blocks from LLM output."""
-    return re.sub(r"<think>.*?</think>", "", text, flags=re.DOTALL).strip()
 from dataclasses import dataclass, field
 from pathlib import Path
 
 from autogen_agentchat.agents import AssistantAgent
 from autogen_agentchat.conditions import MaxMessageTermination
 from autogen_agentchat.teams import RoundRobinGroupChat
+from rich import box
 from rich.console import Console
 from rich.panel import Panel
 from rich.progress import Progress, SpinnerColumn, TextColumn
 from rich.table import Table
-from rich import box
 
 from ..config import get_model_client
 from ..skills.file_scanner import set_repo_path
@@ -37,6 +32,12 @@ from .dimension_agents import (
     D4ExecutabilityAgent,
     D5EvolutionAgent,
 )
+
+
+def _strip_think_tags(text: str) -> str:
+    """Remove <think>...</think> reasoning blocks from LLM output."""
+    return re.sub(r"<think>.*?</think>", "", text, flags=re.DOTALL).strip()
+
 
 console = Console()
 
@@ -148,6 +149,7 @@ class SummaryAgent:
             return asyncio.run(_run_summary())
         except RuntimeError:
             import concurrent.futures
+
             with concurrent.futures.ThreadPoolExecutor() as executor:
                 future = executor.submit(asyncio.run, _run_summary())
                 return future.result()
@@ -186,12 +188,14 @@ class EvaluationOrchestrator:
 
         report = EvaluationReport(repo_path=str(repo))
 
-        console.print(Panel(
-            f"[bold cyan]Agentic Coding 友好度评估[/bold cyan]\n"
-            f"仓库路径: [green]{repo}[/green]",
-            title="评估开始",
-            border_style="blue",
-        ))
+        console.print(
+            Panel(
+                f"[bold cyan]Agentic Coding 友好度评估[/bold cyan]\n"
+                f"仓库路径: [green]{repo}[/green]",
+                title="评估开始",
+                border_style="blue",
+            )
+        )
 
         dim_configs = {
             "D1": ("上下文可理解性", 0.30),
@@ -245,7 +249,9 @@ class EvaluationOrchestrator:
                     )
 
                 report.dimensions[dim_id] = dim_result
-                progress.update(task, completed=True, description=f"[green]✓ {dim_id} — {dim_name} 完成[/green]")
+                progress.update(
+                    task, completed=True, description=f"[green]✓ {dim_id} — {dim_name} 完成[/green]"
+                )
 
         # Compute totals
         report.total_weighted_score = sum(r.weighted_score for r in report.dimensions.values())
@@ -262,18 +268,24 @@ class EvaluationOrchestrator:
         grade, grade_label = compute_grade(report.total_weighted_score)
 
         grade_colors = {
-            "S": "bold magenta", "A": "bold green", "B": "green",
-            "C": "yellow", "D": "red", "F": "bold red",
+            "S": "bold magenta",
+            "A": "bold green",
+            "B": "green",
+            "C": "yellow",
+            "D": "red",
+            "F": "bold red",
         }
         color = grade_colors.get(grade, "white")
 
         console.print()
-        console.print(Panel(
-            f"[{color}]评级: {grade} — {grade_label}[/{color}]\n"
-            f"综合加权总分: [bold]{report.total_weighted_score:.1f}[/bold] / 100",
-            title="🏆 最终评估结果",
-            border_style="green" if report.total_weighted_score >= 60 else "red",
-        ))
+        console.print(
+            Panel(
+                f"[{color}]评级: {grade} — {grade_label}[/{color}]\n"
+                f"综合加权总分: [bold]{report.total_weighted_score:.1f}[/bold] / 100",
+                title="🏆 最终评估结果",
+                border_style="green" if report.total_weighted_score >= 60 else "red",
+            )
+        )
 
         # Dimension scores table
         table = Table(title="📊 各维度评分", box=box.ROUNDED)
@@ -288,11 +300,7 @@ class EvaluationOrchestrator:
             if dim_id in report.dimensions:
                 r = report.dimensions[dim_id]
                 pct = r.percentage
-                color_cell = (
-                    "green" if pct >= 75 else
-                    "yellow" if pct >= 50 else
-                    "red"
-                )
+                color_cell = "green" if pct >= 75 else "yellow" if pct >= 50 else "red"
                 table.add_row(
                     dim_id,
                     r.name,
@@ -303,8 +311,11 @@ class EvaluationOrchestrator:
                 )
 
         table.add_row(
-            "", "[bold]合计[/bold]", "[bold]100%[/bold]",
-            "", "",
+            "",
+            "[bold]合计[/bold]",
+            "[bold]100%[/bold]",
+            "",
+            "",
             f"[bold]{report.total_weighted_score:.1f}[/bold]",
         )
         console.print(table)
@@ -326,27 +337,34 @@ class EvaluationOrchestrator:
             for item in r.items:
                 score = item.get("score", 0)
                 score_color = (
-                    "green" if score >= 8 else
-                    "blue" if score >= 6 else
-                    "yellow" if score >= 4 else
-                    "red"
+                    "green"
+                    if score >= 8
+                    else "blue"
+                    if score >= 6
+                    else "yellow"
+                    if score >= 4
+                    else "red"
                 )
                 sub_table.add_row(
                     item.get("id", ""),
                     item.get("name", ""),
                     f"[{score_color}]{score}/10[/{score_color}]",
-                    item.get("reasoning", "")[:60] + "..." if len(item.get("reasoning", "")) > 60 else item.get("reasoning", ""),
+                    item.get("reasoning", "")[:60] + "..."
+                    if len(item.get("reasoning", "")) > 60
+                    else item.get("reasoning", ""),
                 )
 
             console.print(sub_table)
 
         # Summary text
         if report.summary_text:
-            console.print(Panel(
-                report.summary_text,
-                title="📝 综合分析与改进建议",
-                border_style="blue",
-            ))
+            console.print(
+                Panel(
+                    report.summary_text,
+                    title="📝 综合分析与改进建议",
+                    border_style="blue",
+                )
+            )
 
     def save_report(self, report: EvaluationReport, output_path: str) -> None:
         """Save the evaluation report as JSON."""

@@ -7,10 +7,8 @@ that the generic TypeScript/Python-focused analyzers cannot cover.
 
 import json
 import re
-from pathlib import Path
 
 from .file_scanner import _resolve, list_files_by_extension
-
 
 # ─── Go ───────────────────────────────────────────────────────────────────────
 
@@ -47,32 +45,38 @@ def check_go_module() -> dict:
 
     # Analyze Go source for interfaces, error patterns, context usage
     interface_count = 0
-    error_wrapping = 0   # fmt.Errorf with %w / errors.Is / errors.As
+    error_wrapping = 0  # fmt.Errorf with %w / errors.Is / errors.As
     context_usage = 0
-    godoc_count = 0      # exported symbols with doc comments
+    godoc_count = 0  # exported symbols with doc comments
 
     for f in source_files[:30]:
         try:
             content = (repo / f).read_text(encoding="utf-8", errors="replace")
-            interface_count += len(re.findall(r'\btype\s+\w+\s+interface\s*\{', content))
-            error_wrapping += len(re.findall(r'fmt\.Errorf\([^)]*%w|errors\.Is\(|errors\.As\(', content))
-            context_usage += len(re.findall(r'\bcontext\.Context\b|\bctx\s+context\.Context', content))
+            interface_count += len(re.findall(r"\btype\s+\w+\s+interface\s*\{", content))
+            error_wrapping += len(
+                re.findall(r"fmt\.Errorf\([^)]*%w|errors\.Is\(|errors\.As\(", content)
+            )
+            context_usage += len(
+                re.findall(r"\bcontext\.Context\b|\bctx\s+context\.Context", content)
+            )
             # Exported funcs/types with preceding // comment
-            godoc_count += len(re.findall(r'//[^\n]+\n(?:func|type|var|const)\s+[A-Z]', content))
+            godoc_count += len(re.findall(r"//[^\n]+\n(?:func|type|var|const)\s+[A-Z]", content))
         except Exception:
             pass
 
     # Linter configuration
     lint_configs = {
-        "golangci_lint": any([
-            (repo / ".golangci.yml").exists(),
-            (repo / ".golangci.yaml").exists(),
-            (repo / ".golangci.toml").exists(),
-            (repo / ".golangci.json").exists(),
-        ]),
+        "golangci_lint": any(
+            [
+                (repo / ".golangci.yml").exists(),
+                (repo / ".golangci.yaml").exists(),
+                (repo / ".golangci.toml").exists(),
+                (repo / ".golangci.json").exists(),
+            ]
+        ),
         "staticcheck": any(repo.rglob("staticcheck.conf")),
         "go_vet": True,  # built-in, always available
-        "gofmt": True,   # built-in
+        "gofmt": True,  # built-in
     }
 
     # Check Makefile/CI for Go-specific commands
@@ -126,10 +130,12 @@ def check_java_build() -> dict:
 
     # Build system detection
     has_maven = (repo / "pom.xml").exists()
-    has_gradle = any([
-        (repo / "build.gradle").exists(),
-        (repo / "build.gradle.kts").exists(),
-    ])
+    has_gradle = any(
+        [
+            (repo / "build.gradle").exists(),
+            (repo / "build.gradle.kts").exists(),
+        ]
+    )
     has_wrapper = (repo / "mvnw").exists() or (repo / "gradlew").exists()
 
     build_info = {
@@ -164,18 +170,18 @@ def check_java_build() -> dict:
 
     build_content = ""
     if has_maven:
-        try:
+        import contextlib
+
+        with contextlib.suppress(Exception):
             build_content = (repo / "pom.xml").read_text(encoding="utf-8", errors="replace")
-        except Exception:
-            pass
     elif has_gradle:
+        import contextlib
+
         for f in ["build.gradle", "build.gradle.kts"]:
             p = repo / f
             if p.exists():
-                try:
+                with contextlib.suppress(Exception):
                     build_content = p.read_text(encoding="utf-8", errors="replace")
-                except Exception:
-                    pass
                 break
 
     if build_content:
@@ -200,7 +206,8 @@ def check_java_build() -> dict:
     # Count Java files and test files
     java_files = list_files_by_extension("java")["files"]
     test_java_files = [
-        f for f in java_files
+        f
+        for f in java_files
         if any(kw in f for kw in ["Test.java", "Tests.java", "IT.java", "Spec.java", "/test/"])
     ]
 
@@ -256,9 +263,9 @@ def check_vue_components() -> dict:
     # Composition API vs Options API
     composition_count = 0
     options_count = 0
-    script_setup_count = 0     # <script setup> — modern Vue 3
-    typescript_sfc_count = 0   # <script lang="ts">
-    has_props_define = 0       # defineProps / defineEmits
+    script_setup_count = 0  # <script setup> — modern Vue 3
+    typescript_sfc_count = 0  # <script lang="ts">
+    has_props_define = 0  # defineProps / defineEmits
 
     for f in vue_files[:40]:
         try:
@@ -325,9 +332,11 @@ def check_vue_components() -> dict:
         "has_vite": has_vite,
         "has_vue_config": has_vue_config,
         "api_style": (
-            "Composition API (script setup)" if script_setup_count > total * 0.5 else
-            "Composition API" if composition_count > options_count else
-            "Options API"
+            "Composition API (script setup)"
+            if script_setup_count > total * 0.5
+            else "Composition API"
+            if composition_count > options_count
+            else "Options API"
         ),
         "quality_summary": {
             "uses_typescript": typescript_sfc_count > total * 0.5,
@@ -352,9 +361,16 @@ def check_sql_migrations() -> dict:
 
     # Migration directories
     migration_dirs = [
-        "migrations", "migration", "db/migrations", "database/migrations",
-        "src/migrations", "sql/migrations", "flyway", "liquibase",
-        "alembic/versions", "db/migrate",
+        "migrations",
+        "migration",
+        "db/migrations",
+        "database/migrations",
+        "src/migrations",
+        "sql/migrations",
+        "flyway",
+        "liquibase",
+        "alembic/versions",
+        "db/migrate",
     ]
     found_migration_dirs = [d for d in migration_dirs if (repo / d).is_dir()]
 

@@ -10,7 +10,6 @@ from pathlib import Path
 
 from .file_scanner import _resolve, list_files_by_extension
 
-
 # ─── Type System Analysis ─────────────────────────────────────────────────────
 
 
@@ -69,7 +68,7 @@ def check_type_annotations() -> dict:
         for f in ts_files["files"] + tsx_files["files"]:
             try:
                 content = (repo / f).read_text(encoding="utf-8", errors="replace")
-                any_count += len(re.findall(r'\bany\b', content))
+                any_count += len(re.findall(r"\bany\b", content))
             except Exception:
                 pass
         result["any_count"] = any_count
@@ -89,18 +88,22 @@ def check_type_annotations() -> dict:
                 pass
         result["pydantic_usage"] = pydantic
         result["typed_file_ratio"] = round(typed_files / max(py_files["count"], 1), 2)
-        result["type_system"] = "pydantic" if pydantic else ("partial" if typed_files / max(py_files["count"], 1) > 0.5 else "none")
+        result["type_system"] = (
+            "pydantic"
+            if pydantic
+            else ("partial" if typed_files / max(py_files["count"], 1) > 0.5 else "none")
+        )
 
     elif primary == "Go":
         result["type_system"] = "static"  # Go is statically typed
-        result["strict_mode"] = True       # Go enforces types at compile time
+        result["strict_mode"] = True  # Go enforces types at compile time
         # Count interface definitions as a measure of type system richness
         interface_count = 0
         source_files = [f for f in go_files["files"] if not f.endswith("_test.go")]
         for f in source_files[:20]:
             try:
                 content = (repo / f).read_text(encoding="utf-8", errors="replace")
-                interface_count += len(re.findall(r'\btype\s+\w+\s+interface\s*\{', content))
+                interface_count += len(re.findall(r"\btype\s+\w+\s+interface\s*\{", content))
             except Exception:
                 pass
         result["go_interface_count"] = interface_count
@@ -119,19 +122,21 @@ def check_type_annotations() -> dict:
         for f in java_files["files"][:20]:
             try:
                 content = (repo / f).read_text(encoding="utf-8", errors="replace")
-                generic_count += len(re.findall(r'<[A-Z]\w*(?:,\s*[A-Z]\w*)*>', content))
-                annotation_count += len(re.findall(r'@\w+', content))
+                generic_count += len(re.findall(r"<[A-Z]\w*(?:,\s*[A-Z]\w*)*>", content))
+                annotation_count += len(re.findall(r"@\w+", content))
             except Exception:
                 pass
         result["java_generics_usage"] = generic_count
         result["java_annotation_count"] = annotation_count
 
     # Check for type definition files (cross-language)
-    result["has_type_definitions"] = any([
-        (repo / "types").is_dir(),
-        (repo / "src" / "types").is_dir(),
-        any(repo.rglob("*.d.ts")),
-    ])
+    result["has_type_definitions"] = any(
+        [
+            (repo / "types").is_dir(),
+            (repo / "src" / "types").is_dir(),
+            any(repo.rglob("*.d.ts")),
+        ]
+    )
 
     return result
 
@@ -156,26 +161,38 @@ def check_naming_consistency() -> dict:
     kebab = camel = pascal = snake = other = 0
     for f in all_code_files:
         name = Path(f).stem
-        if re.match(r'^[a-z][a-z0-9]*(-[a-z0-9]+)*$', name):
+        if re.match(r"^[a-z][a-z0-9]*(-[a-z0-9]+)*$", name):
             kebab += 1
-        elif re.match(r'^[a-z][a-zA-Z0-9]*$', name) and any(c.isupper() for c in name):
+        elif re.match(r"^[a-z][a-zA-Z0-9]*$", name) and any(c.isupper() for c in name):
             camel += 1
-        elif re.match(r'^[A-Z][a-zA-Z0-9]*$', name):
+        elif re.match(r"^[A-Z][a-zA-Z0-9]*$", name):
             pascal += 1
-        elif re.match(r'^[a-z][a-z0-9]*(_[a-z0-9]+)*$', name):
+        elif re.match(r"^[a-z][a-z0-9]*(_[a-z0-9]+)*$", name):
             snake += 1
         else:
             other += 1
 
     total = max(len(all_code_files), 1)
     dominant_style = max(
-        [("kebab-case", kebab), ("camelCase", camel), ("PascalCase", pascal), ("snake_case", snake)],
-        key=lambda x: x[1]
+        [
+            ("kebab-case", kebab),
+            ("camelCase", camel),
+            ("PascalCase", pascal),
+            ("snake_case", snake),
+        ],
+        key=lambda x: x[1],
     )[0]
     dominant_pct = max(kebab, camel, pascal, snake) / total
 
     # Check ESLint config for naming rules
-    eslint_configs = [".eslintrc", ".eslintrc.js", ".eslintrc.json", ".eslintrc.yaml", "eslint.config.js", "eslint.config.mjs"]
+    eslint_configs = [
+        ".eslintrc",
+        ".eslintrc.js",
+        ".eslintrc.json",
+        ".eslintrc.yaml",
+        "eslint.config.js",
+        "eslint.config.mjs",
+    ]
     has_eslint = any((repo / f).exists() for f in eslint_configs)
     has_naming_rule = False
     if has_eslint:
@@ -222,8 +239,8 @@ def check_inline_documentation() -> dict:
 
     jsdoc_files = 0
     docstring_files = 0
-    godoc_files = 0     # Go exported symbol with preceding // comment
-    javadoc_files = 0   # Java /** ... */ style
+    godoc_files = 0  # Go exported symbol with preceding // comment
+    javadoc_files = 0  # Java /** ... */ style
     total_comment_lines = 0
     total_code_lines = 0
     has_todo_links = False
@@ -235,10 +252,14 @@ def check_inline_documentation() -> dict:
             lines = content.splitlines()
             total_code_lines += len(lines)
             comment_lines = sum(
-                1 for l in lines
-                if l.strip().startswith("//") or l.strip().startswith("#") or
-                l.strip().startswith("*") or l.strip().startswith("/*") or
-                l.strip().startswith('"""') or l.strip().startswith("'''")
+                1
+                for line in lines
+                if line.strip().startswith("//")
+                or line.strip().startswith("#")
+                or line.strip().startswith("*")
+                or line.strip().startswith("/*")
+                or line.strip().startswith('"""')
+                or line.strip().startswith("'''")
             )
             total_comment_lines += comment_lines
 
@@ -247,12 +268,12 @@ def check_inline_documentation() -> dict:
             if '"""' in content or "'''" in content:
                 docstring_files += 1
             # GoDoc: exported identifier preceded by // comment
-            if re.search(r'// [A-Z]\w+', content) and f.endswith(".go"):
+            if re.search(r"// [A-Z]\w+", content) and f.endswith(".go"):
                 godoc_files += 1
             # Javadoc
             if "/**" in content and f.endswith(".java"):
                 javadoc_files += 1
-            if re.search(r'TODO\s*\(#\d+\)', content) or re.search(r'TODO\s*\[#\d+\]', content):
+            if re.search(r"TODO\s*\(#\d+\)", content) or re.search(r"TODO\s*\[#\d+\]", content):
                 has_todo_links = True
 
         except Exception:
@@ -261,10 +282,7 @@ def check_inline_documentation() -> dict:
     comment_ratio = total_comment_lines / max(total_code_lines, 1)
 
     # Check for module-level README files in subdirectories
-    subdir_readmes = sum(
-        1 for p in repo.rglob("README.md")
-        if p.parent != repo
-    )
+    subdir_readmes = sum(1 for p in repo.rglob("README.md") if p.parent != repo)
 
     return {
         "jsdoc_files": jsdoc_files,
@@ -275,9 +293,7 @@ def check_inline_documentation() -> dict:
         "has_todo_issue_links": has_todo_links,
         "subdir_readmes": subdir_readmes,
         "coverage_quality": (
-            "high" if comment_ratio > 0.15 else
-            "medium" if comment_ratio > 0.05 else
-            "low"
+            "high" if comment_ratio > 0.15 else "medium" if comment_ratio > 0.05 else "low"
         ),
     }
 
@@ -349,7 +365,11 @@ def check_schema_validation() -> dict:
     has_prisma_schema = any(repo.rglob("schema.prisma"))
 
     # Count schema files
-    schema_files = list(repo.rglob("*.schema.ts")) + list(repo.rglob("*.schema.json")) + list(repo.rglob("*schema*.py"))
+    schema_files = (
+        list(repo.rglob("*.schema.ts"))
+        + list(repo.rglob("*.schema.json"))
+        + list(repo.rglob("*schema*.py"))
+    )
 
     any_validation = any(schema_tools.values())
 
@@ -382,9 +402,14 @@ def check_module_interfaces() -> dict:
     for f in ts_files[:30]:
         try:
             content = (repo / f).read_text(encoding="utf-8", errors="replace")
-            interface_count += len(re.findall(r'\binterface\s+\w+', content))
-            abstract_count += len(re.findall(r'\babstract\s+class\s+', content))
-            if "inversify" in content or "tsyringe" in content or "@Injectable" in content or "@inject" in content:
+            interface_count += len(re.findall(r"\binterface\s+\w+", content))
+            abstract_count += len(re.findall(r"\babstract\s+class\s+", content))
+            if (
+                "inversify" in content
+                or "tsyringe" in content
+                or "@Injectable" in content
+                or "@inject" in content
+            ):
                 di_usage = True
         except Exception:
             pass
@@ -399,7 +424,7 @@ def check_module_interfaces() -> dict:
     for f in py_files[:20]:
         try:
             content = (repo / f).read_text(encoding="utf-8", errors="replace")
-            py_abstract += len(re.findall(r'\bABC\b|\babstractmethod\b|\bProtocol\b', content))
+            py_abstract += len(re.findall(r"\bABC\b|\babstractmethod\b|\bProtocol\b", content))
         except Exception:
             pass
 
@@ -434,8 +459,10 @@ def check_env_config() -> dict:
         p = repo / f
         if p.exists():
             content = p.read_text(encoding="utf-8", errors="replace")
-            lines = [l for l in content.splitlines() if l.strip() and not l.startswith("#")]
-            comment_lines = [l for l in content.splitlines() if l.startswith("#")]
+            lines = [
+                line for line in content.splitlines() if line.strip() and not line.startswith("#")
+            ]
+            comment_lines = [line for line in content.splitlines() if line.startswith("#")]
             env_example_quality = {
                 "file": f,
                 "var_count": len(lines),
@@ -463,7 +490,9 @@ def check_env_config() -> dict:
 
     return {
         "env_files": env_files,
-        "has_env_example": any([env_files[".env.example"], env_files[".env.template"], env_files[".env.sample"]]),
+        "has_env_example": any(
+            [env_files[".env.example"], env_files[".env.template"], env_files[".env.sample"]]
+        ),
         "env_committed": env_files[".env"],
         "env_example_quality": env_example_quality,
         "has_schema_validation": has_envalid or has_dotenv_safe,
@@ -486,20 +515,29 @@ def check_lint_config() -> dict:
 
     configs = {
         # JS/TS
-        "eslint": any((repo / f).exists() for f in [
-            ".eslintrc", ".eslintrc.js", ".eslintrc.json", ".eslintrc.yaml",
-            "eslint.config.js", "eslint.config.mjs"
-        ]),
-        "prettier": any((repo / f).exists() for f in [
-            ".prettierrc", ".prettierrc.js", ".prettierrc.json", "prettier.config.js"
-        ]),
+        "eslint": any(
+            (repo / f).exists()
+            for f in [
+                ".eslintrc",
+                ".eslintrc.js",
+                ".eslintrc.json",
+                ".eslintrc.yaml",
+                "eslint.config.js",
+                "eslint.config.mjs",
+            ]
+        ),
+        "prettier": any(
+            (repo / f).exists()
+            for f in [".prettierrc", ".prettierrc.js", ".prettierrc.json", "prettier.config.js"]
+        ),
         # Python
         "ruff": (repo / "ruff.toml").exists() or _check_pyproject_tool(repo, "ruff"),
         "black": (repo / ".black").exists() or _check_pyproject_tool(repo, "black"),
         # Go
-        "golangci_lint": any((repo / f).exists() for f in [
-            ".golangci.yml", ".golangci.yaml", ".golangci.toml", ".golangci.json"
-        ]),
+        "golangci_lint": any(
+            (repo / f).exists()
+            for f in [".golangci.yml", ".golangci.yaml", ".golangci.toml", ".golangci.json"]
+        ),
         # Java
         "checkstyle": any(repo.rglob("checkstyle*.xml")),
         "pmd": any(repo.rglob("pmd*.xml")),
@@ -547,10 +585,10 @@ def check_build_scripts() -> dict:
     has_makefile = (repo / "Makefile").exists()
     has_taskfile = any((repo / f).exists() for f in ["Taskfile.yml", "Taskfile.yaml", "tasks.py"])
     has_justfile = (repo / "justfile").exists() or (repo / "Justfile").exists()
-    has_docker_compose = any((repo / f).exists() for f in [
-        "docker-compose.yml", "docker-compose.yaml",
-        "compose.yml", "compose.yaml"
-    ])
+    has_docker_compose = any(
+        (repo / f).exists()
+        for f in ["docker-compose.yml", "docker-compose.yaml", "compose.yml", "compose.yaml"]
+    )
 
     # Check npm scripts
     npm_scripts = {}
@@ -558,6 +596,7 @@ def check_build_scripts() -> dict:
     if pkg_json.exists():
         try:
             import json
+
             data = json.loads(pkg_json.read_text(encoding="utf-8", errors="replace"))
             npm_scripts = data.get("scripts", {})
         except Exception:
@@ -568,7 +607,7 @@ def check_build_scripts() -> dict:
     if has_makefile:
         try:
             content = (repo / "Makefile").read_text(encoding="utf-8", errors="replace")
-            make_targets = re.findall(r'^(\w[\w-]*)\s*:', content, re.MULTILINE)
+            make_targets = re.findall(r"^(\w[\w-]*)\s*:", content, re.MULTILINE)
         except Exception:
             pass
 
@@ -607,20 +646,24 @@ def check_error_handling() -> dict:
     catch_all_count = 0
     structured_errors = 0
     error_enum_found = False
-    go_error_wrapping = 0   # fmt.Errorf %w / errors.Is / errors.As
+    go_error_wrapping = 0  # fmt.Errorf %w / errors.Is / errors.As
     java_custom_exceptions = 0
 
     for f in (ts_files + py_files)[:20]:
         try:
             content = (repo / f).read_text(encoding="utf-8", errors="replace")
-            custom_error_classes += len(re.findall(
-                r'class\s+\w*Error\w*\s*extends\s+Error|class\s+\w*Exception\w*\s*\(Exception\)',
-                content
-            ))
-            catch_all_count += len(re.findall(r'catch\s*\(\w+\)\s*\{\s*\}|except\s+Exception\s+as', content))
+            custom_error_classes += len(
+                re.findall(
+                    r"class\s+\w*Error\w*\s*extends\s+Error|class\s+\w*Exception\w*\s*\(Exception\)",
+                    content,
+                )
+            )
+            catch_all_count += len(
+                re.findall(r"catch\s*\(\w+\)\s*\{\s*\}|except\s+Exception\s+as", content)
+            )
             if "statusCode" in content or "error_code" in content or "ErrorCode" in content:
                 structured_errors += 1
-            if re.search(r'enum\s+\w*Error\w*\s*{|ErrorCode\s*=', content):
+            if re.search(r"enum\s+\w*Error\w*\s*{|ErrorCode\s*=", content):
                 error_enum_found = True
         except Exception:
             pass
@@ -629,10 +672,12 @@ def check_error_handling() -> dict:
     for f in go_files[:20]:
         try:
             content = (repo / f).read_text(encoding="utf-8", errors="replace")
-            go_error_wrapping += len(re.findall(r'fmt\.Errorf\([^)]*%w|errors\.Is\(|errors\.As\(', content))
+            go_error_wrapping += len(
+                re.findall(r"fmt\.Errorf\([^)]*%w|errors\.Is\(|errors\.As\(", content)
+            )
             # Custom error types: type XxxError struct
-            custom_error_classes += len(re.findall(r'type\s+\w*[Ee]rror\w*\s+struct', content))
-            if re.search(r'type\s+\w*[Ee]rror[Cc]ode\b|ErrCode\s+\w+\s+=', content):
+            custom_error_classes += len(re.findall(r"type\s+\w*[Ee]rror\w*\s+struct", content))
+            if re.search(r"type\s+\w*[Ee]rror[Cc]ode\b|ErrCode\s+\w+\s+=", content):
                 error_enum_found = True
         except Exception:
             pass
@@ -641,11 +686,10 @@ def check_error_handling() -> dict:
     for f in java_files[:20]:
         try:
             content = (repo / f).read_text(encoding="utf-8", errors="replace")
-            java_custom_exceptions += len(re.findall(
-                r'class\s+\w+Exception\s+extends|class\s+\w+Error\s+extends',
-                content
-            ))
-            if re.search(r'@ResponseStatus|ResponseEntity|ErrorCode', content):
+            java_custom_exceptions += len(
+                re.findall(r"class\s+\w+Exception\s+extends|class\s+\w+Error\s+extends", content)
+            )
+            if re.search(r"@ResponseStatus|ResponseEntity|ErrorCode", content):
                 structured_errors += 1
         except Exception:
             pass
@@ -661,9 +705,11 @@ def check_error_handling() -> dict:
         "go_error_wrapping_count": go_error_wrapping,
         "java_custom_exceptions": java_custom_exceptions,
         "quality": (
-            "high" if custom_error_classes > 5 and error_enum_found else
-            "medium" if custom_error_classes > 0 or go_error_wrapping > 3 else
-            "low"
+            "high"
+            if custom_error_classes > 5 and error_enum_found
+            else "medium"
+            if custom_error_classes > 0 or go_error_wrapping > 3
+            else "low"
         ),
     }
 
@@ -790,11 +836,11 @@ def check_extensibility() -> dict:
     for f in (ts_files + py_files)[:25]:
         try:
             content = (repo / f).read_text(encoding="utf-8", errors="replace")
-            if re.search(r'Factory\s*[({<]|factory\s*\(', content):
+            if re.search(r"Factory\s*[({<]|factory\s*\(", content):
                 factory_pattern += 1
-            if re.search(r'Strategy\b|IStrategy\b|strategy\s*=', content):
+            if re.search(r"Strategy\b|IStrategy\b|strategy\s*=", content):
                 strategy_pattern += 1
-            if re.search(r'use\w+Hook|addHook|registerHook|@Hook', content):
+            if re.search(r"use\w+Hook|addHook|registerHook|@Hook", content):
                 hook_pattern += 1
         except Exception:
             pass
@@ -804,7 +850,7 @@ def check_extensibility() -> dict:
     for f in (ts_files + py_files)[:20]:
         try:
             content = (repo / f).read_text(encoding="utf-8", errors="replace")
-            matches = re.findall(r'\bswitch\s*\(', content)
+            matches = re.findall(r"\bswitch\s*\(", content)
             if len(matches) > 3:
                 large_switch_count += 1
         except Exception:
@@ -818,9 +864,11 @@ def check_extensibility() -> dict:
         "hook_pattern_count": hook_pattern,
         "large_switch_files": large_switch_count,
         "extensibility_score": (
-            "high" if plugin_dir or (factory_pattern + strategy_pattern + hook_pattern) > 5 else
-            "medium" if middleware_dir or (factory_pattern + strategy_pattern) > 2 else
-            "low"
+            "high"
+            if plugin_dir or (factory_pattern + strategy_pattern + hook_pattern) > 5
+            else "medium"
+            if middleware_dir or (factory_pattern + strategy_pattern) > 2
+            else "low"
         ),
     }
 
@@ -850,10 +898,16 @@ def check_refactoring_safety() -> dict:
     # Check for test files (multi-language)
     skip = {"node_modules", ".git", "__pycache__", "dist", "build", ".venv", "venv"}
     test_patterns = [
-        "*.test.ts", "*.test.js", "*.spec.ts", "*.spec.js",  # JS/TS
-        "*_test.py", "test_*.py",                              # Python
-        "*_test.go",                                           # Go
-        "*Test.java", "*Tests.java", "*IT.java",               # Java
+        "*.test.ts",
+        "*.test.js",
+        "*.spec.ts",
+        "*.spec.js",  # JS/TS
+        "*_test.py",
+        "test_*.py",  # Python
+        "*_test.go",  # Go
+        "*Test.java",
+        "*Tests.java",
+        "*IT.java",  # Java
     ]
     test_count = 0
     for pattern in test_patterns:
@@ -892,9 +946,5 @@ def check_refactoring_safety() -> dict:
         "has_codecov": has_codecov,
         "has_vscode_settings": has_vscode_settings,
         "safety_score": safety_score,
-        "safety_level": (
-            "high" if safety_score >= 7 else
-            "medium" if safety_score >= 4 else
-            "low"
-        ),
+        "safety_level": ("high" if safety_score >= 7 else "medium" if safety_score >= 4 else "low"),
     }

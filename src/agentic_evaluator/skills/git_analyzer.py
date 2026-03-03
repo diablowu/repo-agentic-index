@@ -7,10 +7,8 @@ version control practices, and security configurations.
 
 import re
 import subprocess
-from pathlib import Path
 
-from .file_scanner import _resolve, list_files_by_extension
-
+from .file_scanner import _resolve
 
 # ─── Git History Analysis ─────────────────────────────────────────────────────
 
@@ -41,20 +39,25 @@ def analyze_git_history() -> dict:
         # Get recent commits
         proc = subprocess.run(
             ["git", "log", "--oneline", "-50"],
-            capture_output=True, text=True, cwd=str(repo), timeout=10
+            capture_output=True,
+            text=True,
+            cwd=str(repo),
+            timeout=10,
         )
         if proc.returncode == 0:
-            lines = [l.strip() for l in proc.stdout.strip().splitlines() if l.strip()]
+            lines = [line.strip() for line in proc.stdout.strip().splitlines() if line.strip()]
             result["commit_count"] = len(lines)
 
             # Check for Conventional Commits pattern: type(scope): description
-            cc_pattern = re.compile(r'^[0-9a-f]+ (feat|fix|docs|style|refactor|test|chore|perf|ci|build|revert)(\(.+\))?: .+')
-            cc_matches = sum(1 for l in lines if cc_pattern.match(l))
+            cc_pattern = re.compile(
+                r"^[0-9a-f]+ (feat|fix|docs|style|refactor|test|chore|perf|ci|build|revert)(\(.+\))?: .+"
+            )
+            cc_matches = sum(1 for line in lines if cc_pattern.match(line))
             result["conventional_commits"] = cc_matches > len(lines) * 0.5 if lines else False
             result["conventional_commits_ratio"] = round(cc_matches / max(len(lines), 1), 2)
 
             # Average message length (excluding hash)
-            msg_lengths = [len(l.split(" ", 1)[1]) if " " in l else 0 for l in lines]
+            msg_lengths = [len(line.split(" ", 1)[1]) if " " in line else 0 for line in lines]
             result["avg_message_length"] = round(sum(msg_lengths) / max(len(msg_lengths), 1), 1)
     except (subprocess.TimeoutExpired, FileNotFoundError):
         result["git_error"] = "Could not run git log"
@@ -68,17 +71,24 @@ def analyze_git_history() -> dict:
     result["has_pr_template"] = any((repo / p).exists() for p in pr_template_paths)
 
     # Check for CHANGELOG
-    result["has_changelog"] = any((repo / f).exists() for f in ["CHANGELOG.md", "CHANGELOG", "CHANGES.md"])
+    result["has_changelog"] = any(
+        (repo / f).exists() for f in ["CHANGELOG.md", "CHANGELOG", "CHANGES.md"]
+    )
 
     # Check for commitlint
-    commitlint_files = [".commitlintrc", ".commitlintrc.js", ".commitlintrc.json", "commitlint.config.js"]
+    commitlint_files = [
+        ".commitlintrc",
+        ".commitlintrc.js",
+        ".commitlintrc.json",
+        "commitlint.config.js",
+    ]
     result["has_commitlint"] = any((repo / f).exists() for f in commitlint_files)
 
     # Check for release-please or semantic-release
     result["has_auto_release"] = (
-        (repo / "release-please-config.json").exists() or
-        (repo / ".releaserc").exists() or
-        (repo / "release.config.js").exists()
+        (repo / "release-please-config.json").exists()
+        or (repo / ".releaserc").exists()
+        or (repo / "release.config.js").exists()
     )
 
     return result
@@ -112,13 +122,19 @@ def check_ci_config() -> dict:
         for wf_file in workflow_dir.glob("*.yml"):
             try:
                 content = wf_file.read_text(encoding="utf-8", errors="replace")
-                workflow_details.append({
-                    "name": wf_file.name,
-                    "has_test": "test" in content.lower() or "pytest" in content or "jest" in content,
-                    "has_lint": "lint" in content.lower() or "eslint" in content or "ruff" in content,
-                    "has_build": "build" in content.lower(),
-                    "triggers": _extract_triggers(content),
-                })
+                workflow_details.append(
+                    {
+                        "name": wf_file.name,
+                        "has_test": "test" in content.lower()
+                        or "pytest" in content
+                        or "jest" in content,
+                        "has_lint": "lint" in content.lower()
+                        or "eslint" in content
+                        or "ruff" in content,
+                        "has_build": "build" in content.lower(),
+                        "triggers": _extract_triggers(content),
+                    }
+                )
             except Exception:
                 pass
 
@@ -187,9 +203,9 @@ def check_gitignore() -> dict:
 
     # Check for secret scanning config
     has_secret_scan = (
-        (repo / ".gitleaks.toml").exists() or
-        (repo / ".git-secrets").exists() or
-        (repo / ".truffleHog.json").exists()
+        (repo / ".gitleaks.toml").exists()
+        or (repo / ".git-secrets").exists()
+        or (repo / ".truffleHog.json").exists()
     )
 
     return {
@@ -200,9 +216,11 @@ def check_gitignore() -> dict:
         "env_file_committed": env_in_repo,
         "has_secret_scanning": has_secret_scan,
         "security_score": (
-            "good" if not missing and not env_in_repo else
-            "ok" if len(missing) <= 2 and not env_in_repo else
-            "poor"
+            "good"
+            if not missing and not env_in_repo
+            else "ok"
+            if len(missing) <= 2 and not env_in_repo
+            else "poor"
         ),
     }
 
@@ -225,7 +243,11 @@ def check_adr_records() -> dict:
 
     if not found_dir:
         # Also check for individual ADR files in docs
-        adr_files = list(repo.rglob("ADR-*.md")) + list(repo.rglob("adr-*.md")) + list(repo.rglob("*-adr.md"))
+        adr_files = (
+            list(repo.rglob("ADR-*.md"))
+            + list(repo.rglob("adr-*.md"))
+            + list(repo.rglob("*-adr.md"))
+        )
         if adr_files:
             return {
                 "has_adr": True,
@@ -268,14 +290,22 @@ def count_test_files() -> dict:
     # Find test files by various naming conventions
     test_patterns = [
         # JS/TS
-        "*.test.ts", "*.test.tsx", "*.test.js",
-        "*.spec.ts", "*.spec.tsx", "*.spec.js",
+        "*.test.ts",
+        "*.test.tsx",
+        "*.test.js",
+        "*.spec.ts",
+        "*.spec.tsx",
+        "*.spec.js",
         # Python
-        "test_*.py", "*_test.py",
+        "test_*.py",
+        "*_test.py",
         # Go
         "*_test.go",
         # Java/Groovy
-        "*Test.java", "*Tests.java", "*IT.java", "*Spec.groovy",
+        "*Test.java",
+        "*Tests.java",
+        "*IT.java",
+        "*Spec.groovy",
     ]
 
     all_test_files = []
@@ -287,14 +317,22 @@ def count_test_files() -> dict:
                 all_test_files.append(str(p.relative_to(repo)))
 
     # Categorize tests
-    e2e_files = [f for f in all_test_files if any(kw in f.lower() for kw in ["e2e", "playwright", "cypress", "selenium"])]
-    integration_files = [f for f in all_test_files if any(kw in f.lower() for kw in ["integration", "integ", "int"])]
+    e2e_files = [
+        f
+        for f in all_test_files
+        if any(kw in f.lower() for kw in ["e2e", "playwright", "cypress", "selenium"])
+    ]
+    integration_files = [
+        f for f in all_test_files if any(kw in f.lower() for kw in ["integration", "integ", "int"])
+    ]
     unit_files = [f for f in all_test_files if f not in e2e_files and f not in integration_files]
 
     # Test configuration files
     test_configs = {
         # JS/TS
-        "jest": any((repo / f).exists() for f in ["jest.config.js", "jest.config.ts", "jest.config.json"]),
+        "jest": any(
+            (repo / f).exists() for f in ["jest.config.js", "jest.config.ts", "jest.config.json"]
+        ),
         "vitest": (repo / "vitest.config.ts").exists() or (repo / "vitest.config.js").exists(),
         "mocha": any((repo / f).exists() for f in [".mocharc.js", ".mocharc.yml"]),
         "playwright": (repo / "playwright.config.ts").exists(),
@@ -310,9 +348,9 @@ def count_test_files() -> dict:
 
     # Coverage config
     has_coverage = (
-        (repo / ".nycrc").exists() or
-        (repo / "coverage.json").exists() or
-        any("coverage" in str(p) for p in repo.rglob("*.json") if "config" in str(p))
+        (repo / ".nycrc").exists()
+        or (repo / "coverage.json").exists()
+        or any("coverage" in str(p) for p in repo.rglob("*.json") if "config" in str(p))
     )
 
     # Test directory structure
@@ -363,19 +401,22 @@ def check_dependency_transparency() -> dict:
         has_deptrac = "deptrac" in content
 
     # Check for dependency security audit configs
-    has_audit = any([
-        (repo / ".snyk").exists(),
-        (repo / "dependabot.yml").exists(),
-        (repo / ".github" / "dependabot.yml").exists(),
-        (repo / ".github" / "renovate.json").exists(),
-        (repo / "renovate.json").exists(),
-    ])
+    has_audit = any(
+        [
+            (repo / ".snyk").exists(),
+            (repo / "dependabot.yml").exists(),
+            (repo / ".github" / "dependabot.yml").exists(),
+            (repo / ".github" / "renovate.json").exists(),
+            (repo / "renovate.json").exists(),
+        ]
+    )
 
     # Count total dependencies
     total_deps = 0
     if pkg_json.exists():
         try:
             import json
+
             data = json.loads(pkg_json.read_text(encoding="utf-8", errors="replace"))
             total_deps = len(data.get("dependencies", {})) + len(data.get("devDependencies", {}))
         except Exception:

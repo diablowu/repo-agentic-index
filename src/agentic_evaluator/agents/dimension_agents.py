@@ -16,46 +16,45 @@ import json
 import re
 
 from autogen_agentchat.agents import AssistantAgent
-from autogen_agentchat.conditions import MaxMessageTermination, TextMentionTermination
+from autogen_agentchat.conditions import MaxMessageTermination
 from autogen_agentchat.teams import RoundRobinGroupChat
 
 from ..config import get_model_client
 from ..skills import (
-    # File scanner
-    scan_repository,
-    check_file_exists,
-    read_file_content,
-    list_files_by_extension,
     analyze_directory_structure,
-    check_devcontainer,
-    # Code analyzer
-    check_type_annotations,
-    check_naming_consistency,
-    check_inline_documentation,
-    check_schema_validation,
-    check_module_interfaces,
-    check_env_config,
-    check_lint_config,
-    check_build_scripts,
-    check_error_handling,
-    check_logging_config,
-    check_design_patterns,
-    check_extensibility,
-    check_refactoring_safety,
     # Git analyzer
     analyze_git_history,
-    check_ci_config,
-    check_gitignore,
     check_adr_records,
-    count_test_files,
+    check_build_scripts,
+    check_ci_config,
     check_dependency_transparency,
+    check_design_patterns,
+    check_devcontainer,
+    check_env_config,
+    check_error_handling,
+    check_extensibility,
+    check_file_exists,
+    check_gitignore,
     # Language-specific analyzer (Go / Java / Vue / SQL)
     check_go_module,
+    check_inline_documentation,
     check_java_build,
-    check_vue_components,
+    check_lint_config,
+    check_logging_config,
+    check_module_interfaces,
+    check_naming_consistency,
+    check_refactoring_safety,
+    check_schema_validation,
     check_sql_migrations,
+    # Code analyzer
+    check_type_annotations,
+    check_vue_components,
+    count_test_files,
+    list_files_by_extension,
+    read_file_content,
+    # File scanner
+    scan_repository,
 )
-
 
 # ─── JSON Extraction ──────────────────────────────────────────────────────────
 
@@ -135,6 +134,7 @@ def _run_agent_async(agent: AssistantAgent, task: str) -> dict | None:
     except RuntimeError:
         # Fallback for nested event loops (e.g. Jupyter)
         import concurrent.futures
+
         with concurrent.futures.ThreadPoolExecutor() as executor:
             future = executor.submit(asyncio.run, _inner())
             return future.result()
@@ -185,11 +185,17 @@ EVALUATION_COMPLETE
 """
 
 D1_TOOLS = [
-    scan_repository, check_file_exists, analyze_directory_structure,
-    check_naming_consistency, check_inline_documentation,
-    check_dependency_transparency, list_files_by_extension,
+    scan_repository,
+    check_file_exists,
+    analyze_directory_structure,
+    check_naming_consistency,
+    check_inline_documentation,
+    check_dependency_transparency,
+    list_files_by_extension,
     # Multi-language support
-    check_go_module, check_java_build, check_vue_components,
+    check_go_module,
+    check_java_build,
+    check_vue_components,
 ]
 
 
@@ -256,10 +262,17 @@ EVALUATION_COMPLETE
 """
 
 D2_TOOLS = [
-    check_type_annotations, check_file_exists, check_schema_validation,
-    check_module_interfaces, check_env_config, list_files_by_extension,
+    check_type_annotations,
+    check_file_exists,
+    check_schema_validation,
+    check_module_interfaces,
+    check_env_config,
+    list_files_by_extension,
     # Multi-language support
-    check_go_module, check_java_build, check_vue_components, check_sql_migrations,
+    check_go_module,
+    check_java_build,
+    check_vue_components,
+    check_sql_migrations,
 ]
 
 
@@ -326,10 +339,15 @@ EVALUATION_COMPLETE
 """
 
 D3_TOOLS = [
-    count_test_files, check_ci_config, check_lint_config,
-    analyze_git_history, check_gitignore, check_file_exists,
+    count_test_files,
+    check_ci_config,
+    check_lint_config,
+    analyze_git_history,
+    check_gitignore,
+    check_file_exists,
     # Multi-language support
-    check_go_module, check_java_build,
+    check_go_module,
+    check_java_build,
 ]
 
 
@@ -396,10 +414,16 @@ EVALUATION_COMPLETE
 """
 
 D4_TOOLS = [
-    check_build_scripts, check_file_exists, check_error_handling,
-    check_logging_config, check_devcontainer, list_files_by_extension,
+    check_build_scripts,
+    check_file_exists,
+    check_error_handling,
+    check_logging_config,
+    check_devcontainer,
+    list_files_by_extension,
     # Multi-language support
-    check_go_module, check_java_build, check_sql_migrations,
+    check_go_module,
+    check_java_build,
+    check_sql_migrations,
 ]
 
 
@@ -466,10 +490,16 @@ EVALUATION_COMPLETE
 """
 
 D5_TOOLS = [
-    check_adr_records, check_file_exists, check_design_patterns,
-    check_extensibility, check_refactoring_safety, read_file_content,
+    check_adr_records,
+    check_file_exists,
+    check_design_patterns,
+    check_extensibility,
+    check_refactoring_safety,
+    read_file_content,
     # Multi-language support
-    count_test_files, check_go_module, check_java_build,
+    count_test_files,
+    check_go_module,
+    check_java_build,
 ]
 
 

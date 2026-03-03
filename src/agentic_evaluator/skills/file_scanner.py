@@ -5,9 +5,7 @@ These functions are registered as AutoGen tool calls to provide
 the LLM with real-time information about the target repository.
 """
 
-import os
 from pathlib import Path
-
 
 # The repo path is injected at runtime by the orchestrator
 _REPO_PATH: str = "."
@@ -40,14 +38,18 @@ def scan_repository() -> dict:
     if not repo.exists():
         return {"error": f"Repository path not found: {repo}"}
 
-    structure = {}
     total_files = 0
     top_level = []
 
     for entry in sorted(repo.iterdir()):
         if entry.name.startswith(".") and entry.name not in {
-            ".github", ".gitlab", ".gitignore", ".cursorrules", ".env.example",
-            ".devcontainer", ".vscode",
+            ".github",
+            ".gitlab",
+            ".gitignore",
+            ".cursorrules",
+            ".env.example",
+            ".devcontainer",
+            ".vscode",
         }:
             continue
         if entry.is_dir():
@@ -55,7 +57,9 @@ def scan_repository() -> dict:
             top_level.append({"name": entry.name, "type": "directory", "file_count": sub_count})
             total_files += sub_count
         else:
-            top_level.append({"name": entry.name, "type": "file", "size_bytes": entry.stat().st_size})
+            top_level.append(
+                {"name": entry.name, "type": "file", "size_bytes": entry.stat().st_size}
+            )
             total_files += 1
 
     return {
@@ -91,7 +95,17 @@ def check_file_exists(filename: str) -> dict:
 
     # Recursive search for the filename (not path), skipping dependency dirs
     base_name = Path(filename).name
-    _skip_dirs = {"node_modules", ".git", "__pycache__", "dist", "build", ".tox", "venv", ".venv", ".cache"}
+    _skip_dirs = {
+        "node_modules",
+        ".git",
+        "__pycache__",
+        "dist",
+        "build",
+        ".tox",
+        "venv",
+        ".venv",
+        ".cache",
+    }
     found = []
     for p in repo.rglob(base_name):
         parts = p.relative_to(repo).parts
@@ -169,7 +183,16 @@ def list_files_by_extension(extension: str) -> dict:
     for p in repo.rglob(pattern):
         # Skip node_modules, .git, __pycache__, dist, build
         parts = p.relative_to(repo).parts
-        skip_dirs = {"node_modules", ".git", "__pycache__", "dist", "build", ".tox", "venv", ".venv"}
+        skip_dirs = {
+            "node_modules",
+            ".git",
+            "__pycache__",
+            "dist",
+            "build",
+            ".tox",
+            "venv",
+            ".venv",
+        }
         if any(part in skip_dirs for part in parts):
             continue
         files.append(str(p.relative_to(repo)))
@@ -199,9 +222,23 @@ def analyze_directory_structure() -> dict:
         result = {}
         try:
             for entry in sorted(path.iterdir()):
-                if entry.name.startswith(".") and entry.name not in {".github", ".gitlab", ".devcontainer", ".vscode"}:
+                if entry.name.startswith(".") and entry.name not in {
+                    ".github",
+                    ".gitlab",
+                    ".devcontainer",
+                    ".vscode",
+                }:
                     continue
-                skip = {"node_modules", "__pycache__", "dist", "build", ".tox", "venv", ".venv", ".git"}
+                skip = {
+                    "node_modules",
+                    "__pycache__",
+                    "dist",
+                    "build",
+                    ".tox",
+                    "venv",
+                    ".venv",
+                    ".git",
+                }
                 if entry.name in skip:
                     continue
                 if entry.is_dir():
@@ -228,8 +265,7 @@ def analyze_directory_structure() -> dict:
     all_dirs = [p for p in repo.rglob("*") if p.is_dir()]
     skip_dirs = {"node_modules", "__pycache__", "dist", "build", ".git", ".tox", "venv", ".venv"}
     valid_dirs = [
-        d for d in all_dirs
-        if not any(part in skip_dirs for part in d.relative_to(repo).parts)
+        d for d in all_dirs if not any(part in skip_dirs for part in d.relative_to(repo).parts)
     ]
     depths = [len(d.relative_to(repo).parts) for d in valid_dirs]
     avg_depth = sum(depths) / len(depths) if depths else 0
@@ -248,11 +284,36 @@ def analyze_directory_structure() -> dict:
 def _check_semantic_naming(tree: dict) -> dict:
     """Check if top-level directory names are semantically meaningful."""
     semantic_names = {
-        "src", "lib", "app", "api", "core", "modules", "services",
-        "controllers", "models", "views", "utils", "helpers", "config",
-        "tests", "test", "docs", "doc", "scripts", "bin", "tools",
-        "migrations", "fixtures", "templates", "assets", "static",
-        "components", "pages", "routes", "middleware", "plugins",
+        "src",
+        "lib",
+        "app",
+        "api",
+        "core",
+        "modules",
+        "services",
+        "controllers",
+        "models",
+        "views",
+        "utils",
+        "helpers",
+        "config",
+        "tests",
+        "test",
+        "docs",
+        "doc",
+        "scripts",
+        "bin",
+        "tools",
+        "migrations",
+        "fixtures",
+        "templates",
+        "assets",
+        "static",
+        "components",
+        "pages",
+        "routes",
+        "middleware",
+        "plugins",
     }
     generic_names = {"misc", "stuff", "data", "temp", "tmp", "old", "new", "backup"}
 
@@ -283,7 +344,11 @@ def check_devcontainer() -> dict:
             found.append(p)
 
     # Also check for Nix
-    has_nix = (repo / "flake.nix").exists() or (repo / "shell.nix").exists() or (repo / "default.nix").exists()
+    has_nix = (
+        (repo / "flake.nix").exists()
+        or (repo / "shell.nix").exists()
+        or (repo / "default.nix").exists()
+    )
     # Check for Codespace
     has_codespace = (repo / ".devcontainer").is_dir()
 

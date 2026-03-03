@@ -15,9 +15,7 @@ Usage:
     uv run evaluate /path/to/repo --output report.json
 """
 
-import subprocess
 import sys
-import time
 from pathlib import Path
 
 import typer
@@ -41,7 +39,8 @@ def evaluate(
     ),
     output: str | None = typer.Option(
         None,
-        "--output", "-o",
+        "--output",
+        "-o",
         help="Save JSON report to this file path",
     ),
     llm_url: str | None = typer.Option(
@@ -64,7 +63,8 @@ def evaluate(
     ),
     verbose: bool = typer.Option(
         False,
-        "--verbose", "-v",
+        "--verbose",
+        "-v",
         help="Show detailed AutoGen conversation logs",
     ),
 ) -> None:
@@ -79,17 +79,21 @@ def evaluate(
     # Override config from CLI options
     if llm_url:
         import os
+
         os.environ["LLM_BASE_URL"] = llm_url
     if llm_key:
         import os
+
         os.environ["LLM_API_KEY"] = llm_key
     if model:
         import os
+
         os.environ["LLM_MODEL"] = model
 
     # Suppress AutoGen verbose output unless --verbose
     if not verbose:
         import logging
+
         logging.getLogger("autogen").setLevel(logging.WARNING)
 
     # Run evaluation
@@ -103,12 +107,12 @@ def evaluate(
 
     except KeyboardInterrupt:
         console.print("\n[yellow]评估被用户中断[/yellow]")
-        raise typer.Exit(code=130)
+        raise typer.Exit(code=130) from None
     except Exception as e:
         console.print(f"\n[red]评估失败: {e}[/red]")
         if verbose:
             raise
-        raise typer.Exit(code=1)
+        raise typer.Exit(code=1) from e
 
 
 @app.command()
@@ -118,6 +122,7 @@ def start_mock_server(
 ) -> None:
     """Start the mock OpenAI-compatible LLM server for testing."""
     import uvicorn
+
     from mock_server.server import app as mock_app
 
     console.print(f"[green]Starting mock LLM server at http://{host}:{port}[/green]")
@@ -145,12 +150,11 @@ def check_server(
     except Exception as e:
         console.print(f"[red]✗ Could not connect to {url}: {e}[/red]")
         console.print("[dim]Start the server with: uv run mock-server[/dim]")
-        raise typer.Exit(code=1)
+        raise typer.Exit(code=1) from None
 
 
 def main():
     """Entry point: if first arg looks like a path, run evaluate directly."""
-    import sys
     args = sys.argv[1:]
     # If first argument is a path (not a subcommand name), insert 'evaluate' subcommand
     known_commands = {"evaluate", "start-mock-server", "check-server", "--help", "-h"}
