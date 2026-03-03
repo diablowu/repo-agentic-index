@@ -61,6 +61,17 @@ def evaluate(
         "-v",
         help="Show detailed AutoGen conversation logs",
     ),
+    only_evaluate: bool = typer.Option(
+        False,
+        "--only-evaluate",
+        help="Skip summary analysis, output scores only",
+    ),
+    output_format: str = typer.Option(
+        "json",
+        "--output-format",
+        help="Output file format when --output is set: json or md",
+        show_choices=True,
+    ),
 ) -> None:
     """Evaluate a repository's Agentic Coding friendliness (D1-D5)."""
 
@@ -90,14 +101,19 @@ def evaluate(
 
         logging.getLogger("autogen").setLevel(logging.WARNING)
 
+    # Validate output_format
+    if output_format not in ("json", "md"):
+        console.print("[red]Error: --output-format must be 'json' or 'md'[/red]")
+        raise typer.Exit(code=1)
+
     # Run evaluation
     try:
         orchestrator = EvaluationOrchestrator()
-        report = orchestrator.evaluate(str(repo))
-        orchestrator.print_report(report)
+        report = orchestrator.evaluate(str(repo), only_evaluate=only_evaluate)
+        orchestrator.print_report(report, only_evaluate=only_evaluate)
 
         if output:
-            orchestrator.save_report(report, output)
+            orchestrator.save_report(report, output, output_format=output_format)
 
     except KeyboardInterrupt:
         console.print("\n[yellow]评估被用户中断[/yellow]")

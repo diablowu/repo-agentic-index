@@ -177,7 +177,7 @@ class EvaluationOrchestrator:
         }
         self.summary_agent = SummaryAgent()
 
-    def evaluate(self, repo_path: str) -> EvaluationReport:
+    def evaluate(self, repo_path: str, only_evaluate: bool = False) -> EvaluationReport:
         """Run the full evaluation for a repository."""
         repo = Path(repo_path).resolve()
         if not repo.exists():
@@ -257,13 +257,14 @@ class EvaluationOrchestrator:
         report.total_weighted_score = sum(r.weighted_score for r in report.dimensions.values())
         report.grade, _ = compute_grade(report.total_weighted_score)
 
-        # Run summary agent
-        console.print("\n[bold]生成综合报告...[/bold]")
-        report.summary_text = self.summary_agent.summarize(report.dimensions)
+        # Run summary agent (skip when only_evaluate=True)
+        if not only_evaluate:
+            console.print("\n[bold]生成综合报告...[/bold]")
+            report.summary_text = self.summary_agent.summarize(report.dimensions)
 
         return report
 
-    def print_report(self, report: EvaluationReport) -> None:
+    def print_report(self, report: EvaluationReport, only_evaluate: bool = False) -> None:
         """Print a formatted evaluation report to the console."""
         grade, grade_label = compute_grade(report.total_weighted_score)
 
@@ -356,8 +357,8 @@ class EvaluationOrchestrator:
 
             console.print(sub_table)
 
-        # Summary text
-        if report.summary_text:
+        # Summary text (skipped when only_evaluate=True)
+        if not only_evaluate and report.summary_text:
             console.print(
                 Panel(
                     report.summary_text,
@@ -366,30 +367,93 @@ class EvaluationOrchestrator:
                 )
             )
 
-    def save_report(self, report: EvaluationReport, output_path: str) -> None:
-        """Save the evaluation report as JSON."""
-        data = {
-            "repo_path": report.repo_path,
-            "total_weighted_score": report.total_weighted_score,
-            "grade": report.grade,
-            "dimensions": {
-                dim_id: {
-                    "dimension": r.dimension,
-                    "name": r.name,
-                    "weight": r.weight,
-                    "total": r.total,
-                    "max_total": r.max_total,
-                    "percentage": r.percentage,
-                    "weighted_score": r.weighted_score,
-                    "items": r.items,
-                }
-                for dim_id, r in report.dimensions.items()
-            },
-            "summary": report.summary_text,
-        }
+    def save_report(
+        self, report: EvaluationReport, output_path: str, output_format: str = "json"
+    ) -> None:
+        """Save the evaluation report as JSON or Markdown."""
+        if output_format == "md":
+            content = self._build_markdown_report(report)
+        else:
+            data = {
+                "repo_path": report.repo_path,
+                "total_weighted_score": report.total_weighted_score,
+                "grade": report.grade,
+                "dimensions": {
+                    dim_id: {
+                        "dimension": r.dimension,
+                        "name": r.name,
+                        "weight": r.weight,
+                        "total": r.total,
+                        "max_total": r.max_total,
+                        "percentage": r.percentage,
+                        "weighted_score": r.weighted_score,
+                        "items": r.items,
+                    }
+                    for dim_id, r in report.dimensions.items()
+                },
+                "summary": report.summary_text,
+            }
+            content = json.dumps(data, ensure_ascii=False, indent=2)
 
-        Path(output_path).write_text(
-            json.dumps(data, ensure_ascii=False, indent=2),
-            encoding="utf-8",
-        )
+        Path(output_path).write_text(content, encoding="utf-8")
         console.print(f"\n[green]报告已保存至: {output_path}[/green]")
+
+    def _build_markdown_report(self, report: EvaluationReport) -> str:
+        """Build a Markdown-formatted evaluation report."""
+        _, grade_label = compute_grade(report.total_weighted_score)
+        lines = [
+            "# Agentic Coding 友好度评估报告",
+            "",
+            f"**仓库**: `{report.repo_path}`  ",
+            f"**总分**: {report.total_weighted_score:.1f} / 100  ",
+            f"**评级**: {report.grade} — {grade_label}",
+            "",
+            "---",
+            "",
+            "## 各维度评分",
+            "",
+            "| 维度 | 名称 | 权重 | 原始分(/50) | 百分制 | 加权得分 |",
+            "|------|------|-----:|------------:|-------:|---------:|",
+        ]
+        for dim_id in ["D1", "D2", "D3", "D4", "D5"]:
+            if dim_id in report.dimensions:
+                r = report.dimensions[dim_id]
+                lines.append(
+                    f"| {dim_id} | {r.name} | {int(r.weight * 100)}% "
+                    f"| {r.total}/50 | {r.percentage:.1f}% | {r.weighted_score:.1f} |"
+                )
+        lines += [
+            f"| | **合计** | **100%** | | | **{report.total_weighted_score:.1f}** |",
+            "",
+        ]
+
+        for dim_id in ["D1", "D2", "D3", "D4", "D5"]:
+            if dim_id not in report.dimensions:
+                continue
+            r = report.dimensions[dim_id]
+            if not r.items:
+                continue
+            lines += [
+                f"## {dim_id} — {r.name} 子项详情",
+                "",
+                "| 编号 | 子项 | 得分 | 说明 |",
+                "|------|------|-----:|------|",
+            ]
+            for item in r.items:
+                reasoning = item.get("reasoning", "").replace("|", "｜")
+                lines.append(
+                    f"| {item.get('id', '')} | {item.get('name', '')} "
+                    f"| {item.get('score', 0)}/10 | {reasoning} |"
+                )
+            lines.append("")
+
+        if report.summary_text:
+            lines += [
+                "---",
+                "",
+                "## 综合分析与改进建议",
+                "",
+                report.summary_text,
+            ]
+
+        return "\n".join(lines)
