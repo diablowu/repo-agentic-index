@@ -65,6 +65,7 @@ class EvaluationReport:
     total_weighted_score: float = 0.0
     grade: str = "F"
     summary_text: str = ""
+    improvements: dict[str, dict] = field(default_factory=dict)
 
 
 GRADE_MAP = {
@@ -177,6 +178,166 @@ class SummaryAgent:
                 return future.result()
 
 
+# ─── Improvement Agent ────────────────────────────────────────────────────────
+
+IMPROVEMENT_SYSTEM_PROMPT = """你是一位专业的代码仓库改进建议专家。
+
+你将收到一份代码仓库各维度的评估数据，包括子项得分和评分理由。
+
+## 任务
+
+针对每个维度，分析低分项目（score/max_score < 0.8），识别核心问题，并给出**具体可操作的改进建议**。
+
+## 要求
+
+1. 重点分析得分偏低的子项（score/max_score < 0.8）
+2. 每个维度输出 3-5 条改进建议
+3. 建议要具体到文件名、命令、代码结构层面（如「创建 CLAUDE.md 文件」而非「改善文档」）
+4. 每条建议标注优先级：P0（关键/立即修复）、P1（重要/近期完成）、P2（优化/长期改进）
+5. 不需要调用任何工具，直接基于输入数据分析
+
+## 输出格式
+
+仅输出以下结构的 JSON，不要有其他说明文字：
+
+```json
+{
+  "D1": {
+    "issues": ["问题描述1", "问题描述2"],
+    "suggestions": [
+      {"priority": "P0", "action": "具体操作步骤..."},
+      {"priority": "P1", "action": "具体操作步骤..."}
+    ]
+  },
+  "D2": { "issues": [...], "suggestions": [...] },
+  "D3": { "issues": [...], "suggestions": [...] },
+  "D4": { "issues": [...], "suggestions": [...] },
+  "D5": { "issues": [...], "suggestions": [...] }
+}
+```
+"""
+
+
+def _extract_improvement_json(task_result) -> dict | None:
+    """Extract the improvement suggestions JSON from the agent's task result."""
+    for msg in reversed(task_result.messages):
+        content = getattr(msg, "content", None)
+        if not content or not isinstance(content, str):
+            continue
+        content = _strip_think_tags(content)
+
+        # Strategy 1: Extract from ```json block
+        match = re.search(r"```json\s*(.+?)```", content, re.DOTALL)
+        if match:
+            json_str = match.group(1).strip()
+            try:
+                data = json.loads(json_str)
+                if isinstance(data, dict) and any(k.startswith("D") for k in data):
+                    return data
+            except json.JSONDecodeError:
+                pass
+
+        # Strategy 2: Find top-level JSON object by brace counting
+        start = content.find("{")
+        if start >= 0:
+            depth = 0
+            end = start
+            for i, ch in enumerate(content[start:], start):
+                if ch == "{":
+                    depth += 1
+                elif ch == "}":
+                    depth -= 1
+                    if depth == 0:
+                        end = i + 1
+                        break
+            if end > start:
+                try:
+                    data = json.loads(content[start:end])
+                    if isinstance(data, dict) and any(k.startswith("D") for k in data):
+                        return data
+                except json.JSONDecodeError:
+                    pass
+
+    return None
+
+
+class ImprovementAgent:
+    """Analyzes dimension evaluation results and generates per-dimension improvement suggestions."""
+
+    def analyze(
+        self, dimension_results: dict[str, DimensionResult], verbose: bool = False
+    ) -> dict[str, dict]:
+        """Analyze dimension results and return structured improvement suggestions."""
+        from autogen_agentchat.agents import AssistantAgent as _AA
+        from autogen_agentchat.base import TaskResult as TR
+        from autogen_agentchat.conditions import MaxMessageTermination
+        from autogen_agentchat.teams import RoundRobinGroupChat
+
+        from .dimension_agents import _TAG_COLORS, _print_verbose_event, _verbose_console
+
+        data = {}
+        for dim_id, dim_result in dimension_results.items():
+            data[dim_id] = {
+                "name": dim_result.name,
+                "percentage": round(dim_result.percentage, 1),
+                "items": [
+                    {
+                        "id": item.get("id"),
+                        "name": item.get("name"),
+                        "score": item.get("score"),
+                        "max_score": item.get("max_score", 10),
+                        "reasoning": item.get("reasoning", ""),
+                    }
+                    for item in dim_result.items
+                ],
+            }
+
+        task = (
+            "以下是代码仓库各维度的评估数据，请分析低分项的问题并给出改进建议。\n\n"
+            f"```json\n{json.dumps(data, ensure_ascii=False, indent=2)}\n```\n\n"
+            "请按照系统提示的 JSON 格式输出改进建议。"
+        )
+
+        agent = _AA(
+            name="ImprovementAgent",
+            model_client=get_model_client(),
+            system_message=IMPROVEMENT_SYSTEM_PROMPT,
+        )
+
+        color = _TAG_COLORS.get("ImprovementAgent", "white")
+        termination = MaxMessageTermination(3)
+
+        async def _run():
+            team = RoundRobinGroupChat(
+                participants=[agent],
+                termination_condition=termination,
+            )
+            if verbose:
+                _verbose_console.rule(f"[{color}][ImprovementAgent] 开始生成改进建议[/{color}]")
+                final: TR | None = None
+                async for event in team.run_stream(task=task):
+                    if isinstance(event, TR):
+                        final = event
+                    else:
+                        _print_verbose_event("ImprovementAgent", event)
+                _verbose_console.rule(f"[{color}][ImprovementAgent] 改进建议完成[/{color}]")
+                return _extract_improvement_json(final) if final else None
+            else:
+                result = await team.run(task=task)
+                return _extract_improvement_json(result)
+
+        try:
+            raw = asyncio.run(_run())
+        except RuntimeError:
+            import concurrent.futures
+
+            with concurrent.futures.ThreadPoolExecutor() as executor:
+                future = executor.submit(asyncio.run, _run())
+                raw = future.result()
+
+        return raw if isinstance(raw, dict) else {}
+
+
 # ─── Orchestrator ─────────────────────────────────────────────────────────────
 
 
@@ -198,6 +359,7 @@ class EvaluationOrchestrator:
             "D5": D5EvolutionAgent(),
         }
         self.summary_agent = SummaryAgent()
+        self.improvement_agent = ImprovementAgent()
 
     def evaluate(
         self, repo_path: str, only_evaluate: bool = False, verbose: bool = False
@@ -284,11 +446,15 @@ class EvaluationOrchestrator:
         report.total_weighted_score = sum(r.weighted_score for r in report.dimensions.values())
         report.grade, _ = compute_grade(report.total_weighted_score)
 
-        # Run summary agent (skip when only_evaluate=True)
+        # Run summary + improvement agents (skip when only_evaluate=True)
         if not only_evaluate:
             if not verbose:
                 console.print("\n[bold]生成综合报告...[/bold]")
             report.summary_text = self.summary_agent.summarize(report.dimensions, verbose=verbose)
+
+            if not verbose:
+                console.print("\n[bold]生成改进建议...[/bold]")
+            report.improvements = self.improvement_agent.analyze(report.dimensions, verbose=verbose)
 
         return report
 
@@ -395,6 +561,31 @@ class EvaluationOrchestrator:
                 )
             )
 
+        # Per-dimension improvement suggestions (skipped when only_evaluate=True)
+        if not only_evaluate and report.improvements:
+            priority_colors = {"P0": "bold red", "P1": "yellow", "P2": "blue"}
+            imp_table = Table(title="🔧 逐维度改进建议", box=box.ROUNDED, show_header=True)
+            imp_table.add_column("维度", style="cyan", no_wrap=True, width=6)
+            imp_table.add_column("优先级", no_wrap=True, width=5)
+            imp_table.add_column("改进建议", style="white")
+
+            for dim_id in ["D1", "D2", "D3", "D4", "D5"]:
+                if dim_id not in report.improvements:
+                    continue
+                imp = report.improvements[dim_id]
+                first = True
+                for sug in imp.get("suggestions", []):
+                    p = sug.get("priority", "P2")
+                    c = priority_colors.get(p, "white")
+                    imp_table.add_row(
+                        dim_id if first else "",
+                        f"[{c}]{p}[/{c}]",
+                        sug.get("action", ""),
+                    )
+                    first = False
+
+            console.print(imp_table)
+
     def save_report(
         self, report: EvaluationReport, output_path: str, output_format: str = "json"
     ) -> None:
@@ -420,6 +611,7 @@ class EvaluationOrchestrator:
                     for dim_id, r in report.dimensions.items()
                 },
                 "summary": report.summary_text,
+                "improvements": report.improvements,
             }
             content = json.dumps(data, ensure_ascii=False, indent=2)
 
@@ -483,5 +675,26 @@ class EvaluationOrchestrator:
                 "",
                 report.summary_text,
             ]
+
+        if report.improvements:
+            lines += [
+                "",
+                "---",
+                "",
+                "## 逐维度改进建议",
+                "",
+            ]
+            for dim_id in ["D1", "D2", "D3", "D4", "D5"]:
+                if dim_id not in report.improvements:
+                    continue
+                imp = report.improvements[dim_id]
+                dim_name = report.dimensions.get(dim_id)
+                name = dim_name.name if dim_name else dim_id
+                lines += [f"### {dim_id} — {name}", ""]
+                for sug in imp.get("suggestions", []):
+                    p = sug.get("priority", "P2")
+                    action = sug.get("action", "")
+                    lines.append(f"- [{p}] {action}")
+                lines.append("")
 
         return "\n".join(lines)

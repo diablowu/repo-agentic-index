@@ -68,6 +68,7 @@ _TAG_COLORS = {
     "D4_ExecutabilityAgent": "magenta",
     "D5_EvolutionAgent": "green",
     "SummaryAgent": "white",
+    "ImprovementAgent": "bright_cyan",
 }
 
 
