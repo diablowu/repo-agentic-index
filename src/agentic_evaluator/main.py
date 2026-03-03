@@ -95,11 +95,14 @@ def evaluate(
 
         os.environ["LLM_MODEL"] = model
 
-    # Suppress AutoGen verbose output unless --verbose
-    if not verbose:
-        import logging
+    # Always suppress AutoGen internal logging (we use our own verbose output)
+    import logging
 
-        logging.getLogger("autogen").setLevel(logging.WARNING)
+    logging.getLogger("autogen").setLevel(logging.WARNING)
+    logging.getLogger("autogen_agentchat").setLevel(logging.WARNING)
+    logging.getLogger("autogen_core").setLevel(logging.WARNING)
+    logging.getLogger("autogen_ext").setLevel(logging.WARNING)
+    logging.getLogger("httpx").setLevel(logging.WARNING)
 
     # Validate output_format
     if output_format not in ("json", "md"):
@@ -109,7 +112,7 @@ def evaluate(
     # Run evaluation
     try:
         orchestrator = EvaluationOrchestrator()
-        report = orchestrator.evaluate(str(repo), only_evaluate=only_evaluate)
+        report = orchestrator.evaluate(str(repo), only_evaluate=only_evaluate, verbose=verbose)
         orchestrator.print_report(report, only_evaluate=only_evaluate)
 
         if output:

@@ -108,8 +108,14 @@ class SummaryAgent:
             system_message=SUMMARY_SYSTEM_PROMPT,
         )
 
-    def summarize(self, dimension_results: dict[str, DimensionResult]) -> str:
+    def summarize(
+        self, dimension_results: dict[str, DimensionResult], verbose: bool = False
+    ) -> str:
         """Generate the final summary report from dimension results."""
+        from autogen_agentchat.base import TaskResult as TR
+
+        from .dimension_agents import _TAG_COLORS, _print_verbose_event, _verbose_console
+
         data = {}
         for dim_id, result in dimension_results.items():
             data[dim_id] = {
@@ -138,11 +144,27 @@ class SummaryAgent:
                 participants=[self.assistant],
                 termination_condition=MaxMessageTermination(3),
             )
-            result = await team.run(task=message)
-            for msg in reversed(result.messages):
-                content = getattr(msg, "content", None)
-                if content and isinstance(content, str):
-                    return _strip_think_tags(content)
+            if verbose:
+                color = _TAG_COLORS.get("SummaryAgent", "white")
+                _verbose_console.rule(f"[{color}][SummaryAgent] 开始生成综合报告[/{color}]")
+                final_result = None
+                async for event in team.run_stream(task=message):
+                    if isinstance(event, TR):
+                        final_result = event
+                    else:
+                        _print_verbose_event("SummaryAgent", event)
+                _verbose_console.rule(f"[{color}][SummaryAgent] 综合报告完成[/{color}]")
+                if final_result:
+                    for msg in reversed(final_result.messages):
+                        content = getattr(msg, "content", None)
+                        if content and isinstance(content, str):
+                            return _strip_think_tags(content)
+            else:
+                result = await team.run(task=message)
+                for msg in reversed(result.messages):
+                    content = getattr(msg, "content", None)
+                    if content and isinstance(content, str):
+                        return _strip_think_tags(content)
             return f"评估完成。总分: {total:.1f}，评级: {grade}"
 
         try:
@@ -177,7 +199,9 @@ class EvaluationOrchestrator:
         }
         self.summary_agent = SummaryAgent()
 
-    def evaluate(self, repo_path: str, only_evaluate: bool = False) -> EvaluationReport:
+    def evaluate(
+        self, repo_path: str, only_evaluate: bool = False, verbose: bool = False
+    ) -> EvaluationReport:
         """Run the full evaluation for a repository."""
         repo = Path(repo_path).resolve()
         if not repo.exists():
@@ -205,53 +229,56 @@ class EvaluationOrchestrator:
             "D5": ("演进友好性", 0.10),
         }
 
-        with Progress(
-            SpinnerColumn(),
-            TextColumn("[progress.description]{task.description}"),
-            console=console,
-        ) as progress:
+        def _run_dim(dim_id: str, dim_name: str, weight: float) -> DimensionResult:
+            agent = self.agents[dim_id]
+            raw_result = agent.evaluate(str(repo), verbose=verbose)
+            if raw_result:
+                actual_weight = raw_result.get("weight", weight)
+                total_score = raw_result.get("total", 0)
+                max_total = raw_result.get("max_total", 50)
+                percentage = (total_score / max_total * 100) if max_total > 0 else 0.0
+                return DimensionResult(
+                    dimension=dim_id,
+                    name=raw_result.get("name", dim_name),
+                    weight=actual_weight,
+                    items=raw_result.get("items", []),
+                    total=total_score,
+                    max_total=max_total,
+                    percentage=percentage,
+                    weighted_score=percentage * actual_weight,
+                    raw=raw_result,
+                )
+            console.print(f"[yellow]警告: {dim_id} 评估结果提取失败，使用默认值[/yellow]")
+            return DimensionResult(
+                dimension=dim_id,
+                name=dim_name,
+                weight=weight,
+                total=0,
+                percentage=0.0,
+                weighted_score=0.0,
+            )
+
+        if verbose:
+            # Verbose: print directly without Progress spinner
             for dim_id, (dim_name, weight) in dim_configs.items():
-                task = progress.add_task(
-                    f"[yellow]评估 {dim_id} — {dim_name}...[/yellow]",
-                    total=None,
-                )
-
-                agent = self.agents[dim_id]
-                raw_result = agent.evaluate(str(repo))
-
-                if raw_result:
-                    actual_weight = raw_result.get("weight", weight)
-                    total_score = raw_result.get("total", 0)
-                    max_total = raw_result.get("max_total", 50)
-                    percentage = (total_score / max_total * 100) if max_total > 0 else 0.0
-                    weighted_score = percentage * actual_weight
-                    dim_result = DimensionResult(
-                        dimension=dim_id,
-                        name=raw_result.get("name", dim_name),
-                        weight=actual_weight,
-                        items=raw_result.get("items", []),
-                        total=total_score,
-                        max_total=max_total,
-                        percentage=percentage,
-                        weighted_score=weighted_score,
-                        raw=raw_result,
+                report.dimensions[dim_id] = _run_dim(dim_id, dim_name, weight)
+        else:
+            with Progress(
+                SpinnerColumn(),
+                TextColumn("[progress.description]{task.description}"),
+                console=console,
+            ) as progress:
+                for dim_id, (dim_name, weight) in dim_configs.items():
+                    ptask = progress.add_task(
+                        f"[yellow]评估 {dim_id} — {dim_name}...[/yellow]",
+                        total=None,
                     )
-                else:
-                    # Fallback if extraction failed
-                    console.print(f"[yellow]警告: {dim_id} 评估结果提取失败，使用默认值[/yellow]")
-                    dim_result = DimensionResult(
-                        dimension=dim_id,
-                        name=dim_name,
-                        weight=weight,
-                        total=0,
-                        percentage=0.0,
-                        weighted_score=0.0,
+                    report.dimensions[dim_id] = _run_dim(dim_id, dim_name, weight)
+                    progress.update(
+                        ptask,
+                        completed=True,
+                        description=f"[green]✓ {dim_id} — {dim_name} 完成[/green]",
                     )
-
-                report.dimensions[dim_id] = dim_result
-                progress.update(
-                    task, completed=True, description=f"[green]✓ {dim_id} — {dim_name} 完成[/green]"
-                )
 
         # Compute totals
         report.total_weighted_score = sum(r.weighted_score for r in report.dimensions.values())
@@ -259,8 +286,9 @@ class EvaluationOrchestrator:
 
         # Run summary agent (skip when only_evaluate=True)
         if not only_evaluate:
-            console.print("\n[bold]生成综合报告...[/bold]")
-            report.summary_text = self.summary_agent.summarize(report.dimensions)
+            if not verbose:
+                console.print("\n[bold]生成综合报告...[/bold]")
+            report.summary_text = self.summary_agent.summarize(report.dimensions, verbose=verbose)
 
         return report
 

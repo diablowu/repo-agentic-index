@@ -16,8 +16,10 @@ import json
 import re
 
 from autogen_agentchat.agents import AssistantAgent
+from autogen_agentchat.base import TaskResult
 from autogen_agentchat.conditions import MaxMessageTermination
 from autogen_agentchat.teams import RoundRobinGroupChat
+from rich.console import Console
 
 from ..config import get_model_client
 from ..skills import (
@@ -55,6 +57,55 @@ from ..skills import (
     # File scanner
     scan_repository,
 )
+
+_verbose_console = Console(highlight=False)
+
+# Agent tag color map
+_TAG_COLORS = {
+    "D1_ContextAgent": "cyan",
+    "D2_SDDAgent": "blue",
+    "D3_BoundaryAgent": "yellow",
+    "D4_ExecutabilityAgent": "magenta",
+    "D5_EvolutionAgent": "green",
+    "SummaryAgent": "white",
+}
+
+
+def _print_verbose_event(tag: str, event) -> None:
+    """Print a single AutoGen stream event with agent tag."""
+    color = _TAG_COLORS.get(tag, "white")
+    prefix = f"[{color}][{tag}][/{color}]"
+    msg_type = type(event).__name__
+
+    if msg_type == "ToolCallRequestEvent":
+        for call in event.content:
+            try:
+                args_obj = (
+                    json.loads(call.arguments)
+                    if isinstance(call.arguments, str)
+                    else call.arguments
+                )
+                args_str = json.dumps(args_obj, ensure_ascii=False)
+            except Exception:
+                args_str = str(call.arguments)
+            args_display = args_str[:120] + "…" if len(args_str) > 120 else args_str
+            _verbose_console.print(
+                f"  {prefix} [yellow]⚙ Tool →[/yellow] [bold]{call.name}[/bold]({args_display})"
+            )
+
+    elif msg_type == "ToolCallExecutionEvent":
+        for result in event.content:
+            result_str = str(result.content)
+            display = result_str[:200] + "…" if len(result_str) > 200 else result_str
+            _verbose_console.print(f"  {prefix} [green]✓ Result →[/green] {display}")
+
+    elif msg_type == "TextMessage":
+        content = re.sub(r"<think>.*?</think>", "[思考已隐藏]", str(event.content), flags=re.DOTALL)
+        display = content[:400] + "…" if len(content) > 400 else content
+        _verbose_console.print(f"  {prefix} [bold]LLM ↩[/bold] {display}")
+
+    # ToolCallSummaryMessage skipped (redundant with execution events)
+
 
 # ─── JSON Extraction ──────────────────────────────────────────────────────────
 
@@ -108,7 +159,9 @@ def _extract_evaluation_json(task_result) -> dict | None:
     return None
 
 
-def _run_agent_async(agent: AssistantAgent, task: str) -> dict | None:
+def _run_agent_async(
+    agent: AssistantAgent, task: str, verbose: bool = False, tag: str = "AGENT"
+) -> dict | None:
     """
     Execute the agent evaluation using a single-agent RoundRobinGroupChat team.
 
@@ -120,14 +173,27 @@ def _run_agent_async(agent: AssistantAgent, task: str) -> dict | None:
     # Each tool call round takes 2 messages (request + result), plus final text
     # 14 messages allows ~6 tool calls with reflection
     termination = MaxMessageTermination(14)
+    color = _TAG_COLORS.get(tag, "white")
 
     async def _inner():
         team = RoundRobinGroupChat(
             participants=[agent],
             termination_condition=termination,
         )
-        result = await team.run(task=task)
-        return _extract_evaluation_json(result)
+        if verbose:
+            _verbose_console.rule(f"[{color}][{tag}] 开始评估[/{color}]")
+            final: TaskResult | None = None
+            async for event in team.run_stream(task=task):
+                if isinstance(event, TaskResult):
+                    final = event
+                else:
+                    _print_verbose_event(tag, event)
+            if final:
+                _verbose_console.rule(f"[{color}][{tag}] 评估完成[/{color}]")
+            return _extract_evaluation_json(final) if final else None
+        else:
+            result = await team.run(task=task)
+            return _extract_evaluation_json(result)
 
     try:
         return asyncio.run(_inner())
@@ -202,7 +268,7 @@ D1_TOOLS = [
 class D1ContextAgent:
     """Agent evaluating D1 — Context Comprehensibility (30% weight)."""
 
-    def evaluate(self, repo_path: str) -> dict | None:
+    def evaluate(self, repo_path: str, verbose: bool = False) -> dict | None:
         agent = AssistantAgent(
             name="D1_ContextAgent",
             model_client=get_model_client(),
@@ -215,7 +281,7 @@ class D1ContextAgent:
             f"请评估位于 `{repo_path}` 的代码仓库的 D1 — 上下文可理解性维度。\n"
             "请调用工具收集仓库信息后给出评分，最后输出JSON结果。"
         )
-        return _run_agent_async(agent, task)
+        return _run_agent_async(agent, task, verbose=verbose, tag="D1_ContextAgent")
 
 
 # ─── D2 — Specification-Driven Development ───────────────────────────────────
@@ -279,7 +345,7 @@ D2_TOOLS = [
 class D2SDDAgent:
     """Agent evaluating D2 — Specification-Driven Development (30% weight)."""
 
-    def evaluate(self, repo_path: str) -> dict | None:
+    def evaluate(self, repo_path: str, verbose: bool = False) -> dict | None:
         agent = AssistantAgent(
             name="D2_SDDAgent",
             model_client=get_model_client(),
@@ -292,7 +358,7 @@ class D2SDDAgent:
             f"请评估位于 `{repo_path}` 的代码仓库的 D2 — 规约驱动能力(SDD)维度。\n"
             "请调用工具收集类型系统、接口定义、Schema验证等信息后给出评分，最后输出JSON结果。"
         )
-        return _run_agent_async(agent, task)
+        return _run_agent_async(agent, task, verbose=verbose, tag="D2_SDDAgent")
 
 
 # ─── D3 — Boundary Control & Guardrails ──────────────────────────────────────
@@ -354,7 +420,7 @@ D3_TOOLS = [
 class D3BoundaryAgent:
     """Agent evaluating D3 — Boundary Control & Guardrails (15% weight)."""
 
-    def evaluate(self, repo_path: str) -> dict | None:
+    def evaluate(self, repo_path: str, verbose: bool = False) -> dict | None:
         agent = AssistantAgent(
             name="D3_BoundaryAgent",
             model_client=get_model_client(),
@@ -367,7 +433,7 @@ class D3BoundaryAgent:
             f"请评估位于 `{repo_path}` 的代码仓库的 D3 — 边界控制与安全护栏维度。\n"
             "请调用工具收集测试、CI、lint、版本控制、安全配置信息后给出评分，最后输出JSON结果。"
         )
-        return _run_agent_async(agent, task)
+        return _run_agent_async(agent, task, verbose=verbose, tag="D3_BoundaryAgent")
 
 
 # ─── D4 — Task Executability ──────────────────────────────────────────────────
@@ -430,7 +496,7 @@ D4_TOOLS = [
 class D4ExecutabilityAgent:
     """Agent evaluating D4 — Task Executability (15% weight)."""
 
-    def evaluate(self, repo_path: str) -> dict | None:
+    def evaluate(self, repo_path: str, verbose: bool = False) -> dict | None:
         agent = AssistantAgent(
             name="D4_ExecutabilityAgent",
             model_client=get_model_client(),
@@ -443,7 +509,7 @@ class D4ExecutabilityAgent:
             f"请评估位于 `{repo_path}` 的代码仓库的 D4 — 任务可执行性维度。\n"
             "请调用工具收集构建脚本、错误处理、日志、调试配置信息后给出评分，最后输出JSON结果。"
         )
-        return _run_agent_async(agent, task)
+        return _run_agent_async(agent, task, verbose=verbose, tag="D4_ExecutabilityAgent")
 
 
 # ─── D5 — Evolution Friendliness ─────────────────────────────────────────────
@@ -506,7 +572,7 @@ D5_TOOLS = [
 class D5EvolutionAgent:
     """Agent evaluating D5 — Evolution Friendliness (10% weight)."""
 
-    def evaluate(self, repo_path: str) -> dict | None:
+    def evaluate(self, repo_path: str, verbose: bool = False) -> dict | None:
         agent = AssistantAgent(
             name="D5_EvolutionAgent",
             model_client=get_model_client(),
@@ -519,4 +585,4 @@ class D5EvolutionAgent:
             f"请评估位于 `{repo_path}` 的代码仓库的 D5 — 演进友好性维度。\n"
             "请调用工具收集设计模式、知识库文件、Agent指引信息后给出评分，最后输出JSON结果。"
         )
-        return _run_agent_async(agent, task)
+        return _run_agent_async(agent, task, verbose=verbose, tag="D5_EvolutionAgent")
