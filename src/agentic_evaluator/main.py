@@ -2,17 +2,11 @@
 CLI entry point for the Agentic Evaluator tool.
 
 Usage:
-    # Start mock LLM server (in one terminal):
-    uv run mock-server
-
-    # Run evaluation (in another terminal):
-    uv run evaluate /path/to/repo
-
     # With real OpenAI-compatible API:
-    LLM_BASE_URL=https://api.openai.com/v1 LLM_API_KEY=sk-... uv run evaluate /path/to/repo
+    LLM_BASE_URL=https://api.openai.com/v1 LLM_API_KEY=sk-... repo-agent-friendly-evaluate /path/to/repo
 
     # Save JSON report:
-    uv run evaluate /path/to/repo --output report.json
+    repo-agent-friendly-evaluate /path/to/repo --output report.json
 """
 
 import sys
@@ -25,7 +19,7 @@ from .agents.orchestrator import EvaluationOrchestrator
 
 console = Console()
 app = typer.Typer(
-    name="agentic-evaluator",
+    name="repo-agent-friendly-evaluate",
     help="Multi-agent Agentic Coding Friendliness Evaluator (Framework v1.0)",
     add_completion=False,
 )
@@ -115,50 +109,11 @@ def evaluate(
         raise typer.Exit(code=1) from e
 
 
-@app.command()
-def start_mock_server(
-    host: str = typer.Option("0.0.0.0", "--host", "-h", help="Server host"),
-    port: int = typer.Option(8000, "--port", "-p", help="Server port"),
-) -> None:
-    """Start the mock OpenAI-compatible LLM server for testing."""
-    import uvicorn
-
-    from mock_server.server import app as mock_app
-
-    console.print(f"[green]Starting mock LLM server at http://{host}:{port}[/green]")
-    console.print("[dim]Press Ctrl+C to stop[/dim]")
-    uvicorn.run(mock_app, host=host, port=port)
-
-
-@app.command()
-def check_server(
-    url: str = typer.Option(
-        "http://localhost:8000",
-        "--url",
-        help="Mock server URL to check",
-    ),
-) -> None:
-    """Check if the mock LLM server is running."""
-    import httpx
-
-    try:
-        resp = httpx.get(f"{url}/health", timeout=5.0)
-        if resp.status_code == 200:
-            console.print(f"[green]✓ Mock server is running at {url}[/green]")
-        else:
-            console.print(f"[yellow]Server responded with status {resp.status_code}[/yellow]")
-    except Exception as e:
-        console.print(f"[red]✗ Could not connect to {url}: {e}[/red]")
-        console.print("[dim]Start the server with: uv run mock-server[/dim]")
-        raise typer.Exit(code=1) from None
-
-
 def main():
-    """Entry point: if first arg looks like a path, run evaluate directly."""
+    """Entry point."""
     args = sys.argv[1:]
-    # If first argument is a path (not a subcommand name), insert 'evaluate' subcommand
-    known_commands = {"evaluate", "start-mock-server", "check-server", "--help", "-h"}
-    if args and args[0] not in known_commands and not args[0].startswith("-"):
+    # If first argument looks like a path (not a flag), treat it as the repo_path directly
+    if args and not args[0].startswith("-"):
         sys.argv.insert(1, "evaluate")
     app()
 

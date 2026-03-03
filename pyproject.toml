@@ -15,8 +15,7 @@ dependencies = [
 ]
 
 [project.scripts]
-evaluate = "agentic_evaluator.main:main"
-mock-server = "mock_server.server:main"
+repo-agent-friendly-evaluate = "agentic_evaluator.main:main"
 
 [build-system]
 requires = ["hatchling"]
